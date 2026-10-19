@@ -1,0 +1,15 @@
+# 构建产物
+build-manual/
+*.apk
+*.apks
+*.idsig
+*.dex
+*.class
+.gradle/
+local.properties
+
+# 系统/工具
+.DS_Store
+*.log
+*.bak*
+a11y.log

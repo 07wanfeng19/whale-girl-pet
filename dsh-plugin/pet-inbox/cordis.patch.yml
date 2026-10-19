@@ -1,0 +1,3 @@
+- insert:
+    - id: dsh-pet-inbox
+      name: '@local/dsh-pet-inbox'
