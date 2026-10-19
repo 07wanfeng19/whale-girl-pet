@@ -7,6 +7,20 @@
 
 ---
 
+## 0. 素材来源与作品边界
+
+> **鲸鱼娘模型素材全部来自 npm 包 [`dsh-pet`](https://www.npmjs.com/package/dsh-pet)**（上游仓库 [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet)，MIT）。
+> **本作品只负责 Android 端生态适配**，不制作、不主张这些素材的著作权。
+
+具体来说：
+
+- `android/app/src/main/assets/` 下的 **webm 动画、表情包（memes）、立绘（pic）、字体（fonts）与 `config.jsonc` 人设**，均取自 `dsh-pet` 及其发行包；
+- 本仓库做的是 **Android 端适配层**：悬浮窗与前台服务、MediaPlayer→SurfaceTexture→GLSurfaceView 渲染、顶点着色器里的侧倾/视线、气泡与面板交互、与 DSH（pet-inbox 插件）及 OpenAI 兼容接口的通信、无障碍自动发送、打包签名与安装；
+- 对素材只做**运行时适配**（24fps 播放、按文件名前缀调度的动画/表情/余额动画），不改素材内容、不主张其版权；
+- 上游素材若更新，直接替换 `assets/` 对应目录即可同步；素材的商用与再分发请遵守上游许可与实际权利人要求。
+
+---
+
 ## 1. 它长什么样、能干什么
 
 | 能力 | 说明 |
