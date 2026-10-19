@@ -149,7 +149,7 @@ bash build/build_apk.sh 137     # 产出 app-release.apk，versionName = 1.<code
 ## 8. License
 
 代码：MIT（见 [LICENSE](LICENSE)）。
-`assets/` 里的视频、表情包、字体仅随本项目分发，版权归各自作者/素材来源所有，**不适用 MIT**；二次分发请自行确认授权。
+素材版权单独说明：`assets/` 里的视频、表情包、字体仅随本项目分发，版权归各自作者/素材来源所有，**不适用 MIT**；二次分发请自行确认授权。
 
 ---
 
