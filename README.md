@@ -56,6 +56,9 @@ build/
   preflight.sh              打包前自检（关键修复在位、素材完整、地图准确）
 dsh-plugin/pet-inbox/      运行在 DeepSeek Harness 里的收件箱插件（Node，无依赖）
 docs/DSH-接入.md           与 DSH 的完整协议、代码块、排障
+docs/开发日志与基线.md    决策、已关闭事项、v122–v137 逐版日志
+docs/代码地图.md          自动生成的代码结构索引（行号对应当前源码）
+CHANGELOG.md               1.26–1.37 逐版更新说明
 ```
 
 ---
