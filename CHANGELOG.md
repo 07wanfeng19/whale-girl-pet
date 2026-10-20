@@ -1,0 +1,34 @@
+# 更新日志
+
+版本号规则：`1.<versionCode % 100>`，例如 versionCode 137 → `1.37`。实验版期间统一叫「鲸鱼娘1.xx实验版」。
+
+## 1.37 — 2026-10-20
+- 应用显示名跟随版本：`build_apk.sh` 自动把 `app_name` 改成「鲸鱼娘1.37实验版」，不再停在旧名。
+- 首次开源发布（GitHub Release v1.37，含 APK）。
+
+## 1.32 – 1.36 — 2026-10-20
+- **无障碍自动发送**：新增 `DeepSeekAutoSend`（只监听 `com.deepseek.chat`）。
+  - `DeepSeekShare.arm(text)` 记下前 24 字指纹与 15 秒窗口；
+  - 界面同时出现该文本与 `content-desc="发送"` 可点节点时才点击，点完立即解除武装；
+  - 未开无障碍时退化为「只发不点」，不报错。
+- 设置页卡片 5 增加「自动发送」开关，未授权时跳系统无障碍设置。
+- v136 增加诊断日志 `/sdcard/Android/data/com.dsh.petoverlay/files/a11y.log` 与调试入口 `--es petarm` / `--es petshare`。
+
+## 1.31 — 2026-10-20
+- 外发通道补齐入口：对话窗底部「📤 发到 DeepSeek」、功能面板「把最后一句发到 DeepSeek」了；没有输入内容时转发 `lastSay`。
+
+## 1.30 — 2026-10-20
+- 新增 `DeepSeekShare`：`ACTION_SEND` 直发 `com.deepseek.chat`，失败退回系统分享面板。
+
+## 1.29 — 2026-10-20
+- 独立模式未配置时给出引导：`isLoopbackBase()` 检测到 base 仍指向本机（DSH 网关）时，提示去设置卡片 5 填公网可用的 base/key，而不是继续用内置台词。
+
+## 1.28 — 2026-10-20
+- **修复独立模式 404**：新增 `postChatJson()`，先请求 `base/chat/completions`，遇 404 自动补 `/v1` 重试，兼容 `https://api.deepseek.com` 这类不带 `/v1` 的裸域名。
+- 插件 `/provider` 输出的 base 统一补齐 `/v1`。
+
+## 1.27 — 2026-10-20
+- 增加诊断日志（tag `PetOverlay`）：指令入口、投递失败码、独立模式 base/key 长度/model/上下文长度、POST 结果。
+
+## 1.26 — 2026-10-20
+- **无 DSH 环境双通道兜底**：`POST /send` 失败后不再只报「连不上工作台」，而是进入独立模式直连 OpenAI 兼容服务商（chat / work 两条通道都支持），保留人设与 3000 字上下文。
