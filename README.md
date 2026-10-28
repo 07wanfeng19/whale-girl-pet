@@ -3,7 +3,7 @@
 一个跑在 Android 上的桌面宠物：**悬浮窗 + 24fps 视频渲染 + 可接 DSH 工作台/任意 OpenAI 兼容接口**。
 她会走动、说话、做动作；连上工作台时能真正执行命令、读写文件；连不上时自动降级为独立模式（直连服务商），再不行就只剩卖萌。
 
-> 当前版本：`1.0 正式版`（versionName 1.0，versionCode 149 起）· 面向 Android 11+（targetSdk 35）· 已在 ColorOS / Android 15 上实测。
+> 当前版本：`1.1 正式版`（versionName 1.1，versionCode 157 起）· 面向 Android 11+（targetSdk 35）· 已在 ColorOS / Android 15 上实测。
 
 ---
 
@@ -28,6 +28,8 @@
 | 悬浮窗 | `SYSTEM_ALERT_WINDOW` 前台服务，跨应用悬浮，可拖动、可隐藏 |
 | 动画 | 106 段 VP9/WebM 素材（24fps，640×360），MediaPlayer → SurfaceTexture → GLSurfaceView 渲染 |
 | 侧倾 / 视线 | 在 **顶点着色器** 里做（`VideoGlView`），因为 GLSurfaceView 吃不到 View 的 matrix 变换 |
+| 拖拽手感 | 拖拽期间不换片不重排窗口；松手带惯性甩出，按力度 0~3 次反复弹墙直到动能消退，撞墙带侧倾脉冲 |
+| 特效完整展示 | 106 段动画的窗口包围盒全部按 ffmpeg cropdetect 逐帧实测重写，蝴蝶/气球/烟花等特效不再被窗口裁掉 |
 | 说话 | 气泡显示 + 打字机效果；有气泡时工作状态汇报自动让位，不顶掉聊天回复 |
 | 聊天面板 | 长按桌宠 → 对话窗；双击 → 功能面板（余额、换装、静音、发到 DeepSeek…） |
 | 连 DSH | 通过本地 pet-inbox 插件（随 App 内置、不开源）把话送进 DeepSeek Harness 会话，由 agent 真执行命令 |
@@ -48,9 +50,11 @@ android/             Android 工程（无 Gradle 依赖也可构建，见第 6 �
       VideoGlView.java         GL 渲染 + 取帧 + 侧倾/视线着色器
       DeepSeekShare.java       发到 DeepSeek App（ACTION_SEND）
       DeepSeekAutoSend.java    无障碍服务：替用户点「发送」
+      SecretBox.java           API Key 加密存储（AES/GCM）
+      PluginInjector.java      工作台插件植入（随 App 内置、可一键安装）
       PetConfig.java / ClipBounds.java / FancyText.java / PetActionReceiver.java
     res/                       布局、图标、无障碍配置、文案
-    assets/                    webm 动画 / memes 表情包 / pic / fonts / config.jsonc
+    assets/                    webm 动画 / memes 表情包 / pic / fonts / config.jsonc / pet-inbox 插件
 build/
   build_apk.sh              手动打包链（aapt2 → javac → d8 → zipalign → apksigner → 装机）
   preflight.sh              打包前自检（关键修复在位、素材完整、地图准确）
@@ -146,7 +150,7 @@ private String postToInbox(String channel, String text) {
 需要：Android SDK build-tools 36、platform android-37、JDK 21、按需改脚本里的绝对路径。
 
 ```bash
-bash build/build_apk.sh 137     # 产出 app-release.apk，versionName = 1.<code%100>
+bash build/build_apk.sh 157     # 产出鲸鱼娘1.1正式版.apk（versionName 固定 1.1，versionCode=157）
 ```
 
 打包前会跑 `preflight.sh`：关键修复在位、素材数量完整、代码地图准确，不通过直接终止。

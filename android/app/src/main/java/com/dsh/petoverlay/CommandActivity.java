@@ -46,18 +46,18 @@ public class CommandActivity extends Activity {
   private String inboxBase() {
     android.content.SharedPreferences p = getSharedPreferences("pet", MODE_PRIVATE);
     String host = p.getString("inbox_host", "127.0.0.1");
-    String port = p.getString("inbox_port", "3081");
+    String port = p.getString("inbox_port", "3082");
     if (host == null || host.isEmpty()) host = "127.0.0.1";
-    if (port == null || port.isEmpty()) port = "3081";
+    if (port == null || port.isEmpty()) port = "3082";
     return "http://" + host + ":" + port;
   }
 
   private String inboxSendUrl() {
     android.content.SharedPreferences p = getSharedPreferences("pet", MODE_PRIVATE);
     String host = p.getString("inbox_host", "127.0.0.1");
-    String port = p.getString("inbox_port", "3081");
+    String port = p.getString("inbox_port", "3082");
     if (host == null || host.isEmpty()) host = "127.0.0.1";
-    if (port == null || port.isEmpty()) port = "3081";
+    if (port == null || port.isEmpty()) port = "3082";
     return "http://" + host + ":" + port + "/send";
   }
 

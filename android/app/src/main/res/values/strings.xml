@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">鲸鱼娘1.37实验版</string>
+    <string name="app_name">鲸鱼娘1.1正式版</string>
     <string name="acc_label">鲸鱼娘 · 自动发送</string>
     <string name="acc_desc">只用于一件事：鲸鱼娘把一句话发到 DeepSeek App 后，替你在那边点一下「发送」。只读取 DeepSeek App 的窗口，不采集、不上传任何内容；不在发送后的 15 秒内则完全不动作。</string>
 </resources>

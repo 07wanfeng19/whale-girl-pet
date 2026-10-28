@@ -12,16 +12,15 @@ VER="${1:?用法: build_apk.sh <版本号，如 54>}"
 if [ -f /root/dsh/preflight.sh ]; then
   bash /root/dsh/preflight.sh || { echo "preflight 未通过，终止打包"; exit 1; }
 fi
-# 版本名规则（2026-10-19 用户定）：鲸鱼娘1.1x / 1.2x 实验版，x = 版本号后两位
-# 迭代 1-9 → 1.1x（1.11~1.19）；之后 → 1.2x（1.21 起）
-NAME_VER="1.$((VER % 100))"
+# 版本名规则（2026-10-28 用户定版，2026-10-28 升级）：鲸鱼娘1.1正式版。versionName 固定 1.1，
+# versionCode 仍按传入参数递增（149→150→…→157→…），保证系统升级检测不倒退。
+NAME_VER="1.1"
 
-# 应用显示名跟随版本（2026-10-20 用户要求「更新包体名称」）：
-# strings.xml 里的 app_name 自动改成「鲸鱼娘<版本>实验版」，避免桌面图标名停在旧版本
+# 应用显示名（2026-10-28 正式更名，升级 1.1）：桌面图标名与产物文件名统一为「鲸鱼娘1.1正式版」
 STRINGS=/root/build/PetOverlay/app/src/main/res/values/strings.xml
 if [ -f "$STRINGS" ]; then
-  sed -i -E "s|(<string name=\"app_name\">)[^<]*(</string>)|\1鲸鱼娘${NAME_VER}实验版\2|" "$STRINGS"
-  echo "app_name → 鲸鱼娘${NAME_VER}实验版"
+  sed -i -E "s|(<string name=\"app_name\">)[^<]*(</string>)|\1鲸鱼娘1.1正式版\2|" "$STRINGS"
+  echo "app_name → 鲸鱼娘1.1正式版"
 fi
 
 export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-arm64
@@ -119,9 +118,21 @@ echo "[6/6] zipalign + 签名"
   --key-pass pass:android --ks-key-alias androiddebugkey \
   --out "$B/petv$VER.apk" "$B/aligned.apk"
 
-cp "$B/petv$VER.apk" "/sdcard/Download/petv$VER.apk"
-cp "$B/petv$VER.apk" "/sdcard/Download/鲸鱼娘${NAME_VER}实验版.apk"
-shiz cp "/sdcard/Download/petv$VER.apk" "/data/local/tmp/petv$VER.apk"
+cp "$B/petv$VER.apk" "/sdcard/Download/鲸鱼娘1.1正式版.apk"
+
+# 只保留当前版本的中文封包：Download 里不再落 petv$VER.apk，
+# 旧中文包（含历史「实验版」「1.0正式版」）、以及残留的 petv*.apk / .idsig 一律清掉。
+for f in /sdcard/Download/petv*.apk /sdcard/Download/鲸鱼娘*实验版.apk /sdcard/Download/鲸鱼娘*.apk; do
+  [ -e "$f" ] || continue
+  case "$f" in
+    */鲸鱼娘1.1正式版.apk) continue ;;
+  esac
+  rm -f "$f" "$f.idsig"
+done
+rm -f /sdcard/Download/petv*.apk.idsig
+echo "已清理旧包，只保留 /sdcard/Download/鲸鱼娘1.1正式版.apk"
+
+shiz cp "/sdcard/Download/鲸鱼娘1.1正式版.apk" "/data/local/tmp/petv$VER.apk"
 shiz chmod 644 "/data/local/tmp/petv$VER.apk"
 echo "--- 版本校验 ---"
 "$BT/aapt2" dump badging "$B/petv$VER.apk" | head -1

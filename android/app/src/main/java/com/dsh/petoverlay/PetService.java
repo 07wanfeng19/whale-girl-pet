@@ -96,6 +96,13 @@ public class PetService extends Service {
   private long downAt;
   private long lastTapAt;
   private float lastTapX, lastTapY;
+  // ---- 拖动惯性（松手后按速度衰减滑行一段）+ 侧倾平滑回正 ----
+  private float lastMoveX, lastMoveY;   // 上一帧触点位置（算松手瞬间速度）
+  private long lastMoveAt;              // 上一帧触点时间
+  private float flingVx, flingVy;       // 松手瞬间速度（px/s）
+  private ValueAnimator flingAnimator;  // 惯性滑动动画
+  private ValueAnimator leanAnimator;   // 侧倾回正动画
+  private int moveTick;                 // 拖拽帧计数（侧倾降频用）
   private final Runnable singleTapTask =
       new Runnable() {
         @Override
@@ -810,6 +817,13 @@ public class PetService extends Service {
         startY = params.y;
         downAt = System.currentTimeMillis();
         dragging = false;
+        lastMoveX = event.getRawX();
+        lastMoveY = event.getRawY();
+        lastMoveAt = downAt;
+        flingVx = flingVy = 0f;
+        moveTick = 0;
+        cancelFling();
+        cancelLean();
         main.removeCallbacks(gazeReset);
         updateGaze(event.getRawX(), event.getRawY());
         return true;
@@ -818,32 +832,49 @@ public class PetService extends Service {
         float dy = event.getRawY() - downY;
         if (!dragging && (Math.abs(dx) > dp(6) || Math.abs(dy) > dp(6))) {
           dragging = true;
-          play(pick(dragPool), true, 0);
+          // 拖拽期间不换片、不改窗口尺寸：换片会走 new MediaPlayer + prepareAsync
+          //（几十~几百 ms 空窗）且 applyWindowFor 会撑大窗口造成尺寸突变，
+          // 两者叠加就是「拖动瞬间卡顿 / 过渡不平滑」的根源。拖拽只纯移动窗口位置，
+          // 松手后再播点击回应动画，跟手性最好。
         }
         if (dragging) {
+          // 采样速度：瞬时速度做指数滑动平均，滤掉触点抖动，抛出方向更稳
+          long now = System.currentTimeMillis();
+          float dt = (now - lastMoveAt) / 1000f;
+          if (dt > 0.001f && dt < 0.1f) {
+            float instVx = (event.getRawX() - lastMoveX) / dt;
+            float instVy = (event.getRawY() - lastMoveY) / dt;
+            flingVx = flingVx * 0.5f + instVx * 0.5f;
+            flingVy = flingVy * 0.5f + instVy * 0.5f;
+          }
+          lastMoveX = event.getRawX();
+          lastMoveY = event.getRawY();
+          lastMoveAt = now;
           params.x = startX + (int) dx;
           params.y = startY + (int) dy;
           try {
             wm.updateViewLayout(rootView, params);
           } catch (Throwable ignored) {
           }
-          // 拖拽侧倾：按水平位移给最多 ±7°，松手归零（原版 leanX 的手感）
+          // 拖拽侧倾：直接设目标角，GL 渲染层已用 lerp（leanCur += (leanTarget-leanCur)*0.35）
+          // 平滑逼近，无需在 Java 层二次插值（双重平滑反而会让倾斜滞后、不跟手）。
           if (glView != null) {
-            float lean = Math.max(-7f, Math.min(7f, dx / dp(45) * 7f));
-            glView.setLeanDeg(lean);
+            float target = Math.max(-7f, Math.min(7f, dx / dp(45) * 7f));
+            glView.setLeanDeg(target);
           }
         }
-        updateGaze(event.getRawX(), event.getRawY());
         return true;
       case MotionEvent.ACTION_UP:
         long held = System.currentTimeMillis() - downAt;
-        if (glView != null) glView.setLeanDeg(0f);   // 松手立刻扶正
+        if (glView != null) animateLeanTo(0f);       // 松手侧倾平滑回正（不再瞬间归零）
         main.removeCallbacks(gazeReset);
         main.postDelayed(gazeReset, 2200);           // 视线回正：2.2s 后慢慢收回
         if (dragging) {
-          play(pick(clickPool), false, 0);
           say(pick(DRAG_LINES));
-          settleHome();
+          // 不在这里播点击回应动画：play 会触发 applyWindowFor 改窗口尺寸，与
+          // startFling 的滑动 updateViewLayout 抢位置，造成滑行中的窗口跳动。
+          // 改为 fling 结束后（settleHome 稳定落位）再播，滑行期间窗口尺寸不变。
+          startFling();
         } else if (held < 400) {
           long now = System.currentTimeMillis();
           if (now - lastTapAt < 320 && Math.abs(event.getRawX() - lastTapX) < dp(80)
@@ -923,10 +954,11 @@ public class PetService extends Service {
     try {
       int[] s = screenSize();
       syncHomeFromParams();
-      // 只夹「至少留一块在屏幕内」，防止拖出屏幕找不回来
-      int keep = dp(56);
-      int minX = -(WIN_W_PX - keep), maxX = s[0] - keep;
-      int minY = -(WIN_H_PX - keep), maxY = s[1] - keep;
+      // 至少留一半在屏幕内：甩出后必定回弹到屏幕内部，不会大部分甩出去只露一条边
+      int keepX = Math.max(dp(56), WIN_W_PX / 2);
+      int keepY = Math.max(dp(56), WIN_H_PX / 2);
+      int minX = -(WIN_W_PX - keepX), maxX = s[0] - keepX;
+      int minY = -(WIN_H_PX - keepY), maxY = s[1] - keepY;
       homeX = Math.max(minX, Math.min(maxX, homeX));
       homeY = Math.max(minY, Math.min(maxY, homeY));
 
@@ -939,6 +971,158 @@ public class PetService extends Service {
       dumpGeom("dragEnd");
     } catch (Throwable ignored) {
     }
+  }
+
+  /**
+   * 松手惯性滑行：按 ACTION_MOVE 采样的甩出速度，做带边界反弹的物理减速滑动。
+   * 撞到屏幕四边按恢复系数反弹，速度低于阈值后停止，再 settleHome() 收尾。
+   * 速度很慢（基本是「放下」而非「甩」）时直接 settleHome，不播惯性，保持轻放的手感。
+   */
+  private void startFling() {
+    float vx = flingVx, vy = flingVy;
+    float speed = (float) Math.sqrt(vx * vx + vy * vy);
+    // 低于这个速度视为「轻轻放下」，不滑行
+    if (speed < dp(300)) {
+      settleHome();
+      play(pick(clickPool), false, 0);   // 轻放：直接播点击回应
+      return;
+    }
+    // 软上限：匹配多弹墙需要，略提高（原来 2200 稍保守）
+    float cap = dp(3200);
+    if (speed > cap) {
+      float k = cap / speed;
+      vx *= k; vy *= k;
+    }
+
+    cancelFling();
+    final int[] s = screenSize();
+    // 撞墙边界：允许窗口「撞到屏幕边缘再弹回」，但窗口至少一半留在屏内，
+    // 保证甩出后必定回弹到屏幕内部（而不是大部分甩出去只露一条边）。
+    final int keep = Math.max(dp(56), WIN_W_PX / 2);
+    final int minX = -(WIN_W_PX - keep), maxX = s[0] - keep;
+    final int keepY = Math.max(dp(56), WIN_H_PX / 2);
+    final int minY = -(WIN_H_PX - keepY), maxY = s[1] - keepY;
+
+    // 物理参数：低阻力 + 高恢复系数，让「力度大」的甩出能反复弹墙
+    //（实测：猛甩 2~3 次弹墙、中甩 1~2 次、轻甩 0 次，直到动能自然消退）
+    final float friction = 1.2f;       // 空气阻力：调低才能滑到对面墙再弹回来
+    final float restitution = 0.75f;   // 撞墙恢复系数（0~1）
+    final float stopSpeed = dp(40);    // 低于此速度视为静止
+    final float[] curX = {params.x};
+    final float[] curY = {params.y};
+    final float[] velX = {vx};
+    final float[] velY = {vy};
+    // 撞墙脉冲：撞墙瞬间给一个反向侧倾，模拟「弹了一下」的物理反馈
+    final int[] lastWallDir = {0};   // 0=无 -1=撞左/上 1=撞右/下（仅 X 轴用正负）
+
+    flingAnimator = ValueAnimator.ofFloat(0f, 1f);
+    flingAnimator.setDuration(1800);   // 给足时间反复弹墙；速度低于阈值会提前 cancel 结束
+    // 每帧用真实时间步长积分，保证不同帧率下手感一致
+    final long[] lastFrameAt = {System.currentTimeMillis()};
+    flingAnimator.addUpdateListener(
+        new ValueAnimator.AnimatorUpdateListener() {
+          @Override
+          public void onAnimationUpdate(ValueAnimator a) {
+            long now = System.currentTimeMillis();
+            float dt = (now - lastFrameAt[0]) / 1000f;
+            lastFrameAt[0] = now;
+            if (dt <= 0f || dt > 0.05f) dt = 0.016f;   // 兜底步长
+
+            // 半隐式欧拉积分：先衰减速度，再位移，撞墙反弹
+            float dec = (float) Math.exp(-friction * dt);
+            velX[0] *= dec;
+            velY[0] *= dec;
+
+            curX[0] += velX[0] * dt;
+            curY[0] += velY[0] * dt;
+
+            // X 边界反弹：位置钉在墙上（不再镜像瞬移），速度反向——贴墙减速再反向，视觉连贯
+            if (curX[0] < minX) {
+              curX[0] = minX;
+              if (velX[0] < 0) { velX[0] = -velX[0] * restitution; lastWallDir[0] = -1; }
+            } else if (curX[0] > maxX) {
+              curX[0] = maxX;
+              if (velX[0] > 0) { velX[0] = -velX[0] * restitution; lastWallDir[0] = 1; }
+            }
+            // Y 边界反弹
+            if (curY[0] < minY) {
+              curY[0] = minY;
+              if (velY[0] < 0) { velY[0] = -velY[0] * restitution; lastWallDir[0] = -1; }
+            } else if (curY[0] > maxY) {
+              curY[0] = maxY;
+              if (velY[0] > 0) { velY[0] = -velY[0] * restitution; lastWallDir[0] = 1; }
+            }
+
+            params.x = (int) curX[0];
+            params.y = (int) curY[0];
+            try {
+              if (rootView != null) wm.updateViewLayout(rootView, params);
+            } catch (Throwable ignored) {
+            }
+
+            // 撞墙瞬间：给一个反向侧倾脉冲（±8°），快速回正，模拟弹墙的物理反馈
+            if (lastWallDir[0] != 0) {
+              float pulse = lastWallDir[0] < 0 ? -8f : 8f;
+              if (glView != null) glView.setLeanDeg(pulse);
+              main.postDelayed(
+                  new Runnable() {
+                    @Override
+                    public void run() {
+                      if (glView != null) animateLeanTo(0f);
+                    }
+                  },
+                  60);
+              lastWallDir[0] = 0;
+            }
+
+            // 速度足够小就提前结束
+            float sp = (float) Math.sqrt(velX[0] * velX[0] + velY[0] * velY[0]);
+            if (sp < stopSpeed) {
+              a.cancel();
+            }
+          }
+        });
+    flingAnimator.addListener(new android.animation.AnimatorListenerAdapter() {
+      @Override
+      public void onAnimationEnd(android.animation.Animator animation) {
+        settleHome();
+        play(pick(clickPool), false, 0);   // 滑完稳定落位后再播点击回应
+      }
+    });
+    flingAnimator.start();
+  }
+
+  private void cancelFling() {
+    if (flingAnimator != null) flingAnimator.cancel();
+    flingAnimator = null;
+  }
+
+  /** 侧倾平滑回正：从当前角度缓动到目标角度（松手时用，代替瞬间归零） */
+  private void animateLeanTo(final float target) {
+    if (glView == null) return;
+    final float from = glView.getLeanDeg();
+    if (Math.abs(from - target) < 0.05f) {
+      glView.setLeanDeg(target);
+      return;
+    }
+    cancelLean();
+    leanAnimator = ValueAnimator.ofFloat(0f, 1f);
+    leanAnimator.setDuration(180);
+    leanAnimator.addUpdateListener(
+        new ValueAnimator.AnimatorUpdateListener() {
+          @Override
+          public void onAnimationUpdate(ValueAnimator a) {
+            float f = (float) a.getAnimatedValue();
+            float e = 1f - (1f - f) * (1f - f) * (1f - f);
+            glView.setLeanDeg(from + (target - from) * e);
+          }
+        });
+    leanAnimator.start();
+  }
+
+  private void cancelLean() {
+    if (leanAnimator != null) leanAnimator.cancel();
+    leanAnimator = null;
   }
 
   /** 触点相对角色中心的偏移，换算成轻微的视线位移（最多 9px，不打扰阅读） */
@@ -1212,8 +1396,8 @@ public class PetService extends Service {
     list.addView(panelItem("重载配置", false, this::actReload));
     boolean bound = petToken() != null && !petToken().isEmpty();
     list.addView(
-        panelItem(bound ? "已绑定工作台（点击重绑）" : "绑定工作台", false, this::actBind));
-    if (bound) list.addView(panelItem("解绑工作台", false, this::actUnbind));
+        panelItem(bound ? "已连工作台（点一下重新连）" : "一键绑定工作台", false, this::actEasyBind));
+    list.addView(panelItem(bound ? "一键解绑工作台" : "一键解绑工作台（现在没绑）", false, bound ? this::actEasyUnbind : this::actEasyUnbindNoop));
 
     // ---- 动作（按分类分组）----
     for (String[] sec : clipSections()) {
@@ -1494,6 +1678,249 @@ public class PetService extends Service {
     hidePanel();
     bindInbox();
     say("已绑定工作台");
+  }
+
+  // ---------- 傻瓜式绑定 / 解绑（2026-10-28）----------
+  // 目标：用户什么都不用懂。点一下 → 自动连上工作台拿令牌 → 自动把工作台拉到前台，
+  // 绑定完成后在桌宠这边说一句人话。失败也只用一句话说清「该怎么办」。
+
+  private volatile boolean easyBusy = false;
+
+  /** 服务端是否已有我这份令牌（GET /bind 是公开的，可直接问） */
+  private boolean[] serverHasMyToken() {
+    // 返回 [可达, 认我]
+    String my = petToken();
+    try {
+      HttpURLConnection c =
+          (HttpURLConnection) new java.net.URL(inboxUrl("/bind")).openConnection();
+      c.setConnectTimeout(2500);
+      c.setReadTimeout(3500);
+      int code = c.getResponseCode();
+      java.io.InputStream in =
+          code == 200 ? c.getInputStream() : c.getErrorStream();
+      java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+      if (in != null) {
+        byte[] b = new byte[2048];
+        int n;
+        while ((n = in.read(b)) > 0) bo.write(b, 0, n);
+        in.close();
+      }
+      c.disconnect();
+      if (code != 200) return new boolean[] {true, false};
+      String body = new String(bo.toByteArray(), "UTF-8");
+      String t = jsonStr(body, "token");
+
+      // GET /bind 不回令牌（只回 bound/boundAt），所以用「我的令牌能否通过鉴权」来判断
+      // 能不能认我 —— /channels 需要令牌，200 且 ok:true 就等于「我是这台设备」。
+      if (my == null || my.isEmpty()) return new boolean[] {true, false};
+      HttpURLConnection c2 =
+          (HttpURLConnection) new java.net.URL(inboxUrl("/channels")).openConnection();
+      c2.setConnectTimeout(2500);
+      c2.setReadTimeout(3500);
+      c2.setRequestProperty("x-pet-token", my);
+      int code2 = c2.getResponseCode();
+      java.io.InputStream in2 =
+          code2 == 200 ? c2.getInputStream() : c2.getErrorStream();
+      java.io.ByteArrayOutputStream bo2 = new java.io.ByteArrayOutputStream();
+      if (in2 != null) {
+        byte[] b2 = new byte[4096];
+        int n2;
+        while ((n2 = in2.read(b2)) > 0) bo2.write(b2, 0, n2);
+        in2.close();
+      }
+      c2.disconnect();
+      String body2 = new String(bo2.toByteArray(), "UTF-8");
+      boolean ok = code2 == 200 && body2.contains("\"ok\":true");
+      return new boolean[] {true, ok};
+    } catch (Throwable e) {
+      return new boolean[] {false, false};
+    }
+  }
+
+  /** 一键绑定：连工作台 → 取/复用令牌 → 跳转工作台 → 汇报结果 */
+  private void actEasyBind() {
+    hidePanel();
+    if (easyBusy) {
+      say("正在处理，等一下下…");
+      return;
+    }
+    easyBusy = true;
+    say("正在连工作台…");
+    new Thread(
+            () -> {
+              String report;
+              try {
+                boolean[] st = serverHasMyToken();
+                if (!st[0]) {
+                  report = "连不上工作台。先把 DeepSeek Harness 打开，再点一次绑定。";
+                } else {
+                  // 服务端可达：直接走 /bind。已认我 → 复用原令牌；不认 → 领新令牌
+                  boolean ok = bindAndStore();
+                  if (ok) {
+                    report = st[1] ? "本来就连着工作台，已确认绑定 ✅" : "绑定成功 ✅ 现在可以聊了";
+                  } else {
+                    report = "工作台连上了，但没给令牌。检查 DSH 里 pet-inbox 插件是否在运行。";
+                  }
+                }
+              } catch (Throwable e) {
+                report = "绑定失败：" + briefErr(e);
+              }
+              easyBusy = false;
+              final String r = report;
+              main.post(
+                  () -> {
+                    say(r);
+                    jumpToHarness(); // 无论成败都把工作台拉到前台，用户自己看得到
+                  });
+            })
+        .start();
+  }
+
+  /** 一键解绑：通知服务端摘掉我的令牌 → 清本地 → 跳转工作台 */
+  private void actEasyUnbind() {
+    hidePanel();
+    if (easyBusy) {
+      say("正在处理，等一下下…");
+      return;
+    }
+    if (petToken() == null || petToken().isEmpty()) {
+      say("现在本来就没绑定，不用解。");
+      jumpToHarness();
+      return;
+    }
+    easyBusy = true;
+    say("正在解绑…");
+    new Thread(
+            () -> {
+              String report;
+              try {
+                boolean[] st = serverHasMyToken();
+                if (!st[0]) {
+                  // 服务端不可达：本地一定要清，否则用户以为解绑失败了
+                  getSharedPreferences("pet", MODE_PRIVATE).edit().remove("token").apply();
+                  report = "工作台没开，已在本机解除绑定。等它开起来也不会再自动连。";
+                } else if (!st[1]) {
+                  getSharedPreferences("pet", MODE_PRIVATE).edit().remove("token").apply();
+                  report = "服务端已经不认识这台设备了，本地已清干净 ✅";
+                } else {
+                  boolean ok = postUnbind();
+                  getSharedPreferences("pet", MODE_PRIVATE).edit().remove("token").apply();
+                  report = ok ? "解绑成功 ✅ 以后不会再往工作台说话" : "服务端没确认解绑，但本地已清掉，实际效果一样";
+                }
+              } catch (Throwable e) {
+                getSharedPreferences("pet", MODE_PRIVATE).edit().remove("token").apply();
+                report = "等解绑回执时出错，本地已清掉：" + briefErr(e);
+              }
+              easyBusy = false;
+              final String r = report;
+              main.post(
+                  () -> {
+                    say(r);
+                    jumpToHarness();
+                  });
+            })
+        .start();
+  }
+
+  /** bindInbox 的同步版：成功返回 true，并把令牌落盘 */
+  private boolean bindAndStore() {
+    try {
+      String token = getSharedPreferences("pet", MODE_PRIVATE).getString("token", "");
+      HttpURLConnection c =
+          (HttpURLConnection) new java.net.URL(inboxUrl("/bind")).openConnection();
+      c.setRequestMethod("POST");
+      c.setConnectTimeout(3000);
+      c.setReadTimeout(6000);
+      c.setDoOutput(true);
+      c.setRequestProperty("content-type", "application/json");
+      if (!token.isEmpty()) c.setRequestProperty("x-pet-token", token);
+      c.setRequestProperty(
+          "x-pet-device", android.os.Build.MODEL == null ? "phone" : android.os.Build.MODEL);
+      byte[] out = "{}".getBytes("UTF-8");
+      c.setFixedLengthStreamingMode(out.length);
+      java.io.OutputStream os = c.getOutputStream();
+      os.write(out);
+      os.close();
+      int code = c.getResponseCode();
+      if (code != 200) {
+        c.disconnect();
+        return false;
+      }
+      java.io.InputStream in = c.getInputStream();
+      java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+      byte[] b = new byte[2048];
+      int n;
+      while ((n = in.read(b)) > 0) bo.write(b, 0, n);
+      in.close();
+      c.disconnect();
+      String t = jsonStr(new String(bo.toByteArray(), "UTF-8"), "token");
+      if (t == null || t.isEmpty()) return false;
+      getSharedPreferences("pet", MODE_PRIVATE).edit().putString("token", t).apply();
+      Log.i(TAG, "绑定工作台成功");
+      return true;
+    } catch (Throwable e) {
+      Log.w(TAG, "绑定工作台失败", e);
+      return false;
+    }
+  }
+
+  /** 通知服务端解绑（同步版）：成功返回 true */
+  private boolean postUnbind() {
+    try {
+      HttpURLConnection c =
+          (HttpURLConnection) new java.net.URL(inboxUrl("/unbind")).openConnection();
+      c.setRequestMethod("POST");
+      applyAuth(c);
+      c.setConnectTimeout(3000);
+      c.setReadTimeout(5000);
+      c.setDoOutput(true);
+      byte[] out = "{}".getBytes("UTF-8");
+      c.setFixedLengthStreamingMode(out.length);
+      java.io.OutputStream os = c.getOutputStream();
+      os.write(out);
+      os.close();
+      int code = c.getResponseCode();
+      java.io.InputStream in = code == 200 ? c.getInputStream() : c.getErrorStream();
+      java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+      if (in != null) {
+        byte[] b = new byte[2048];
+        int n;
+        while ((n = in.read(b)) > 0) bo.write(b, 0, n);
+        in.close();
+      }
+      c.disconnect();
+      if (code != 200) return false;
+      return new String(bo.toByteArray(), "UTF-8").contains("\"ok\":true");
+    } catch (Throwable e) {
+      return false;
+    }
+  }
+
+  /** 把错误压成一句人话 */
+  private static String briefErr(Throwable e) {
+    String m = e.getMessage();
+    if (m == null) m = e.getClass().getSimpleName();
+    if (m.length() > 40) m = m.substring(0, 40) + "…";
+    return m;
+  }
+
+  /** 没绑定却点了解绑：只说一句话，不跳转 */
+  private void actEasyUnbindNoop() {
+    hidePanel();
+    say("现在本来就没绑定，不用解。要连的话点上面那个「一键绑定工作台」。");
+  }
+
+  /** 跳转工作台（拉不起来就闭嘴，别吓用户） */
+  private void jumpToHarness() {
+    try {
+      android.content.Intent i = new android.content.Intent();
+      i.setComponent(new android.content.ComponentName(harnessPkg(), harnessAct()));
+      i.addFlags(
+          android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+              | android.content.Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+      startActivity(i);
+    } catch (Throwable ignored) {
+    }
   }
 
   /** 解绑工作台：清本地令牌并通知服务端 */
@@ -1977,9 +2404,19 @@ public class PetService extends Service {
   /** 工作台连接地址（可在设置页改，换一套 DSH 只改配置不用重编） */
   private String inboxBase() {
     String host = pref("inbox_host", "127.0.0.1");
-    String port = pref("inbox_port", "3081");
     if (host.isEmpty()) host = "127.0.0.1";
-    if (port.isEmpty()) port = "3081";
+    String port = pref("inbox_port", "3082");
+    if (port.isEmpty()) port = "3082";
+    // 2026-10-28 端口对齐：老版本默认 3081，而 pet-inbox 插件默认监听 3082。
+    // 存着 3081 的多是「从没改过」的遗产值，自动挪一次，别让用户永远连不上。
+    if ("3081".equals(port) && !"1".equals(pref("port_migrated_143", ""))) {
+      port = "3082";
+      getSharedPreferences("pet", MODE_PRIVATE)
+          .edit()
+          .putString("inbox_port", port)
+          .putString("port_migrated_143", "1")
+          .apply();
+    }
     return "http://" + host + ":" + port;
   }
 
@@ -2004,6 +2441,30 @@ public class PetService extends Service {
     return v == null ? def : v;
   }
 
+  // ---------- 独立模式配置（2026-10-28：默认值改成 DeepSeek 官方，Key 改加密存储） ----------
+  /** DeepSeek 官方 OpenAI 兼容地址；独立模式不填就用它 */
+  static final String DEFAULT_BASE = "https://api.deepseek.com";
+  /** 官方默认模型 */
+  static final String DEFAULT_MODEL = "deepseek-chat";
+
+  /** 独立模式 BaseURL：没配 → 官方地址；配了 → 用配的（第三方 API 就填这里） */
+  private String dBase() {
+    String v = pref("durl_override", "");
+    if (v.isEmpty()) v = pref("durl", "");      // 兼容老版本存过的值
+    return v.isEmpty() ? DEFAULT_BASE : v;
+  }
+
+  /** 独立模式 API Key：SharedPreferences 里是 AES-GCM 密文，这里解密后返回 */
+  private String dKey() {
+    return SecretBox.decrypt(this, pref("dkey", ""));
+  }
+
+  /** 独立模式模型名：没配 → 官方默认 */
+  private String dModel() {
+    String v = pref("dmodel", "");
+    return v.isEmpty() ? DEFAULT_MODEL : v;
+  }
+
   /** 从工作台拉一次服务商配置并缓存（之后脱离 DSH 也能用） */
   private void syncProviderFromDsh() {
     new Thread(
@@ -2026,9 +2487,9 @@ public class PetService extends Service {
 
   /** 独立模式：直接调 OpenAI 兼容 chat 接口生成一句碎碎念 */
   private String standaloneWhisper() {
-    String base = pref("durl", "");
-    String key = pref("dkey", "");
-    String model = pref("dmodel", "");
+    String base = dBase();
+    String key = dKey();
+    String model = dModel();
     if (base.isEmpty() || key.isEmpty()) return null;
     String sys = "你是主人桌面上的Q版蓝发小女仆，会时不时碎碎念一句。说话要自然随意、短短一句（20字以内），温柔乖巧带点俏皮，说人话不啰嗦，不要解释你自己，不要提你是AI。";
     String req =
@@ -2061,9 +2522,9 @@ public class PetService extends Service {
    * ch=chat 走闲聊口吻，ch=work 走正经口吻；上下文存在 prefs 的 ctx_<ch> 里。
    */
   private String standaloneAsk(String ch, String text) {
-    String base = pref("durl", "");
-    String key = pref("dkey", "");
-    String model = pref("dmodel", "");
+    String base = dBase();
+    String key = dKey();
+    String model = dModel();
     Log.i(TAG, "standaloneAsk base=" + (base.isEmpty() ? "<空>" : base)
         + " key=" + (key.isEmpty() ? "<空>" : key.length() + "字符")
         + " model=" + model + " ctxLen=" + pref("ctx_" + ch, "").length());
@@ -2211,8 +2672,8 @@ public class PetService extends Service {
 
   /** 独立模式：直接查服务商余额。DeepSeek 优先官方 /user/balance（真·剩余），挂了回落 usage（注意其 total_usage 对 DeepSeek 是人民币分） */
   private String standaloneBalance() {
-    String base = pref("durl", "");
-    String key = pref("dkey", "");
+    String base = dBase();
+    String key = dKey();
     if (base.isEmpty() || key.isEmpty()) return null;
     String root = base.replaceAll("/+$", "").replaceAll("/v1$", "");
     boolean isDeepseek = root.toLowerCase().contains("deepseek.com");

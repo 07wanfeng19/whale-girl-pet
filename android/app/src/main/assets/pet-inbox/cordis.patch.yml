@@ -1,0 +1,3 @@
+- insert:
+    - id: dsh-pet-inbox
+      name: 'file:///root/dsh/pet-inbox-plugin/index.js?v=1'

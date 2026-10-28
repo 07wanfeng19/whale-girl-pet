@@ -43,7 +43,7 @@ echo "  webm 总数 = $total（应 106）"; [ "$total" -eq 106 ] && pass=$((pass
 echo "  余额动画 = $bal（应 6，功能已完成、必须保留）"; [ "$bal" -eq 6 ] && pass=$((pass+1)) || { echo "  ✗ 余额动画缺失"; fail=$((fail+1)); }
 
 echo "── 4. 打包脚本一致性 ──"
-grepq "NAME_VER 自动推导 1.\$((VER%100))"  /root/build/build_apk.sh 'NAME_VER="1.\$((VER % 100))"'
+grepq "NAME_VER 固定 1.1 正式版"  /root/build/build_apk.sh 'NAME_VER="1.1"'
 grepq "产物复制到 /sdcard/Download"        /root/build/build_apk.sh '/sdcard/Download'
 
 echo "── 5. 代码地图一致性 ──"

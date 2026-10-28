@@ -281,6 +281,11 @@ public class VideoGlView extends GLSurfaceView implements GLSurfaceView.Renderer
         });
   }
 
+  /** 当前侧倾目标角（度）。用于松手时从当前角度平滑回正 */
+  public float getLeanDeg() {
+    return (float) Math.toDegrees(leanTarget);
+  }
+
   /** 视线偏移（像素，正右正下）。整只角色朝触点轻微偏移，模拟视线跟随 */
   public void setGazePx(final float dxPx, final float dyPx) {
     queueEvent(
