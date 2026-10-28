@@ -1,6 +1,6 @@
 # 与 DeepSeek Harness 的接入说明
 
-桌宠不认识 DSH 的内部结构，只认一个**本机 HTTP 小服务**（`pet-inbox` 插件）。
+桌宠不认识 DSH 的内部结构，只认一个**本机 HTTP 小服务**（pet-inbox 插件，不开源、随 App 内置）。
 这份文档把两端协议、关键代码、首次绑定和排障一次讲清。
 
 ---
@@ -9,7 +9,7 @@
 
 ```
 ┌──────────────────────┐                    ┌───────────────────────────┐
-│  鲸鱼娘 App            │  POST /send        │  pet-inbox 插件（Node）    │
+│  鲸鱼娘 App            │  POST /send        │  pet-inbox 插件（不开源）  │
 │  com.dsh.petoverlay   │  x-pet-token       │  127.0.0.1:3081           │
 │  PetService / Command │ ─────────────────▶ │  ~/.dsh/pet-inbox/bind.json│
 └──────────────────────┘ ◀───────────────── └─────────────┬─────────────┘
@@ -29,13 +29,12 @@
 
 ### 2.1 插件侧
 
-```bash
-# 零 npm 依赖，只有 index.js
-# 1) 放进 DSH profile 的插件目录（或用 file: 依赖装进 profile）
-# 2) 启用后监听 127.0.0.1:3081
-PET_INBOX_PORT=3081   # 可选
-DSH_WEB_PORT=3080     # 插件反查工作台状态（余额/工作状态）用
-```
+插件不开源，随 App 内置（`assets/pet-inbox/`）。在鲸鱼娘设置页点「安装 / 更新插件到工作台」，
+App 解包插件文件并生成安装命令，你在 DSH 里贴一下执行即可；启用后监听 `127.0.0.1:3081`。
+
+环境变量（可选）：
+- `PET_INBOX_PORT=3081`：覆盖监听端口；
+- `DSH_WEB_PORT=3080`：插件反查工作台状态（余额/工作状态）用。
 
 插件启动日志里会出现 `桌宠收件箱已监听 127.0.0.1:3081`。
 
@@ -189,41 +188,13 @@ private String postChatJson(String base, String key, String req) {
 
 ---
 
-## 5. 插件侧代码块
+## 5. 插件侧行为
 
-```js
-// 鉴权：令牌对不上就别干活
-function authorized(req) {
-  const b = readBind()                       // ~/.dsh/pet-inbox/bind.json
-  if (!b.token) return { ok: false, reason: 'unbound' }
-  if (reqToken(req) !== b.token) return { ok: false, reason: 'token-mismatch' }
-  return { ok: true }
-}
+插件 pet-inbox **不开源**，源码不在本仓库（随 App 内置分发）。这里只描述它的对外行为，方便理解协议：
 
-// 投递：写进 DSH 的 agent 会话（mode=queue 不打断正在跑的回合）
-async function deliver(channel, text) {
-  const trimmed = String(text || '').trim()
-  if (!trimmed) throw new Error('指令为空')
-  if (trimmed.length > MAX_CHARS) throw new Error(`指令太长（上限 ${MAX_CHARS} 字）`)
-
-  const controller = ctx.sessionController
-  const sessionId = await sessionFor(channel)          // chat / work 各绑一个会话
-  const requestId = 'pet-' + crypto.randomUUID()
-
-  try {
-    await controller.commands.prompt({
-      requestId,
-      sessionId,
-      mode: 'queue',
-      content: [{ type: 'text', text: trimmed }],
-      clientTimeZone: 'Asia/Shanghai',
-    })
-  } catch (error) {
-    // 绑定的会话可能被删了：解绑后用新会话重试一次
-    ...
-  }
-}
-```
+- 投递走 DSH 的 `sessionController.commands.prompt()`，`mode:"queue"`（不打断正在跑的回合），`clientTimeZone:"Asia/Shanghai"`；
+- `chat` / `work` 各绑一个会话，绑定失效（会话被删）时解绑后用新会话重试一次；
+- 鉴权：请求令牌对不上 `bind.json` 就不干活。
 
 > 也就是说：**App 只负责把字送进会话，干活的是 DSH 里的 agent**。
 

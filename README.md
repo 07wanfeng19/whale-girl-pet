@@ -30,7 +30,7 @@
 | 侧倾 / 视线 | 在 **顶点着色器** 里做（`VideoGlView`），因为 GLSurfaceView 吃不到 View 的 matrix 变换 |
 | 说话 | 气泡显示 + 打字机效果；有气泡时工作状态汇报自动让位，不顶掉聊天回复 |
 | 聊天面板 | 长按桌宠 → 对话窗；双击 → 功能面板（余额、换装、静音、发到 DeepSeek…） |
-| 连 DSH | 通过本地 `pet-inbox` 插件把话送进 DeepSeek Harness 会话，由 agent 真执行命令 |
+| 连 DSH | 通过本地 pet-inbox 插件（随 App 内置、不开源）把话送进 DeepSeek Harness 会话，由 agent 真执行命令 |
 | 独立模式 | 没有 DSH 时直连 OpenAI 兼容接口（`/chat/completions`，自动补 `/v1`），保留基本对话 |
 | 外发通道 | 一键把当前回复 `ACTION_SEND` 给 DeepSeek App；装了无障碍服务后**自动按发送** |
 
@@ -54,7 +54,6 @@ android/             Android 工程（无 Gradle 依赖也可构建，见第 6 �
 build/
   build_apk.sh              手动打包链（aapt2 → javac → d8 → zipalign → apksigner → 装机）
   preflight.sh              打包前自检（关键修复在位、素材完整、地图准确）
-dsh-plugin/pet-inbox/      运行在 DeepSeek Harness 里的收件箱插件（Node，无依赖）
 docs/DSH-接入.md           与 DSH 的完整协议、代码块、排障
 docs/开发日志与基线.md    决策、已关闭事项、v122–v137 逐版日志
 docs/代码地图.md          自动生成的代码结构索引（行号对应当前源码）
@@ -65,7 +64,7 @@ CHANGELOG.md               1.26–1.37 逐版更新说明
 
 ## 3. 与 DeepSeek Harness（DSH）的连接
 
-一句话：**App 不认识 DSH 的内部结构，只认一个本地 HTTP 小服务**。这个服务由 `dsh-plugin/pet-inbox` 提供。
+一句话：**App 不认识 DSH 的内部结构，只认一个本地 HTTP 小服务**。这个服务由 pet-inbox 插件提供（插件不开源，随 App 内置分发）。
 
 ```
 ┌─────────────┐   POST /send {channel,text}   ┌──────────────────┐
@@ -103,10 +102,9 @@ private String postToInbox(String channel, String text) {
 
 ### 装插件（在 DSH 里）
 
-```bash
-# 把 dsh-plugin/pet-inbox 放进 profile 的插件目录，或在 profile 的 package.json 里加 file: 依赖
-# 插件零 npm 依赖，只有一个 index.js，启用后监听 127.0.0.1:3081
-```
+插件 pet-inbox **不开源**，随 App 内置（`assets/pet-inbox/`），不在本仓库公开源码。
+首次在鲸鱼娘设置页点「安装 / 更新插件到工作台」，App 会把插件文件解包到中转目录，
+并生成一条命令，你在 DeepSeek Harness（DSH）里贴一下执行即完成安装；启用后监听 `127.0.0.1:3081`。
 
 ### App 侧配置（设置页卡片）
 
