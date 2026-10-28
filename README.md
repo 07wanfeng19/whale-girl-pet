@@ -3,7 +3,7 @@
 一个跑在 Android 上的桌面宠物：**悬浮窗 + 24fps 视频渲染 + 可接 DSH 工作台/任意 OpenAI 兼容接口**。
 她会走动、说话、做动作；连上工作台时能真正执行命令、读写文件；连不上时自动降级为独立模式（直连服务商），再不行就只剩卖萌。
 
-> 当前版本：`1.37`（versionCode 137）· 面向 Android 11+（targetSdk 35）· 已在 ColorOS / Android 15 上实测。
+> 当前版本：`1.0 正式版`（versionName 1.0，versionCode 149 起）· 面向 Android 11+（targetSdk 35）· 已在 ColorOS / Android 15 上实测。
 
 ---
 
@@ -55,9 +55,10 @@ build/
   build_apk.sh              手动打包链（aapt2 → javac → d8 → zipalign → apksigner → 装机）
   preflight.sh              打包前自检（关键修复在位、素材完整、地图准确）
 docs/DSH-接入.md           与 DSH 的完整协议、代码块、排障
-docs/开发日志与基线.md    决策、已关闭事项、v122–v137 逐版日志
+docs/开发日志与基线.md    决策、已关闭事项、逐版日志
 docs/代码地图.md          自动生成的代码结构索引（行号对应当前源码）
-CHANGELOG.md               1.26–1.37 逐版更新说明
+docs/用户反馈-桌宠接入DSH失败报告.md   一位网友提供的反馈（已据此修复兼容性）
+CHANGELOG.md               逐版更新说明
 ```
 
 ---
