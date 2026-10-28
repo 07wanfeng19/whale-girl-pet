@@ -69,7 +69,7 @@ CHANGELOG.md               1.26–1.37 逐版更新说明
 ```
 ┌─────────────┐   POST /send {channel,text}   ┌──────────────────┐
 │ 鲸鱼娘 App   │ ────────────────────────────▶ │ pet-inbox 插件    │
-│ (Android)    │ ◀──────────────────────────── │ 127.0.0.1:3081   │
+│ (Android)    │ ◀──────────────────────────── │ 127.0.0.1:3082   │
 └─────────────┘   {ok:true, sessionId}         └────────┬─────────┘
                                                         │ 写入 session
                                                 ┌───────▼─────────┐
@@ -95,7 +95,7 @@ private String postToInbox(String channel, String text) {
     ...
 ```
 
-- 端口默认 **3081**，可用环境变量 `PET_INBOX_PORT` 改；只绑回环地址。
+- 端口默认 **3082**，可用环境变量 `PET_INBOX_PORT` 改；只绑回环地址。
 - 令牌在首次 `/bind` 时由插件发下、App 存进 `SharedPreferences("pet").token`，之后每个请求带 `x-pet-token`。
 - 通道两种：`chat`（陪聊）与 `work`（干活），分别落到不同的 agent 会话。
 - 详细端点（`/ping` `/diag` `/provider` `/balance` `/whisper` `/workstatus` `/bind` `/unbind` `/last`）与排障见 **[docs/DSH-接入.md](docs/DSH-接入.md)**。
@@ -104,7 +104,7 @@ private String postToInbox(String channel, String text) {
 
 插件 pet-inbox **不开源**，随 App 内置（`assets/pet-inbox/`），不在本仓库公开源码。
 首次在鲸鱼娘设置页点「安装 / 更新插件到工作台」，App 会把插件文件解包到中转目录，
-并生成一条命令，你在 DeepSeek Harness（DSH）里贴一下执行即完成安装；启用后监听 `127.0.0.1:3081`。
+并生成一条命令，你在 DeepSeek Harness（DSH）里贴一下执行即完成安装；启用后监听 `127.0.0.1:3082`。
 
 ### App 侧配置（设置页卡片）
 
@@ -113,7 +113,7 @@ private String postToInbox(String channel, String text) {
 | ① 基础 | 缩放、透明度、位置 |
 | ② 模型 | 显示名 / 语气 |
 | ③ 素材 | 动画目录、表情包 |
-| ④ 指令入口 | 工作台地址（默认 `http://127.0.0.1:3081`）、端口 |
+| ④ 指令入口 | 工作台地址（默认 `http://127.0.0.1:3082`）、端口 |
 | ⑤ 独立模式 | `base`（OpenAI 兼容地址）、`key`、`model` —— 没有 DSH 时靠它对话 |
 
 ---
@@ -127,7 +127,7 @@ private String postToInbox(String channel, String text) {
 3. 带上人设提示词（不说 Markdown / 承认自己不能执行命令），保留 3000 字上下文；
 4. 再失败才显示「没有主机，独立模式也没配置」。
 
-> 实测：宿主占着 3081 时，`/send` 得到 HTTP 405 → 自动降级直连服务商 → 200 → 气泡正常出话。
+> 实测：宿主占着 3082 时，`/send` 得到 HTTP 405 → 自动降级直连服务商 → 200 → 气泡正常出话。
 
 ---
 

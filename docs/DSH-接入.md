@@ -10,7 +10,7 @@
 ```
 ┌──────────────────────┐                    ┌───────────────────────────┐
 │  鲸鱼娘 App            │  POST /send        │  pet-inbox 插件（不开源）  │
-│  com.dsh.petoverlay   │  x-pet-token       │  127.0.0.1:3081           │
+│  com.dsh.petoverlay   │  x-pet-token       │  127.0.0.1:3082           │
 │  PetService / Command │ ─────────────────▶ │  ~/.dsh/pet-inbox/bind.json│
 └──────────────────────┘ ◀───────────────── └─────────────┬─────────────┘
         │                                                   │ ctx.sessionController
@@ -19,7 +19,7 @@
    OpenAI 兼容 API                                    DSH agent 会话
 ```
 
-- **端口**：默认 `3081`；插件可用 `PET_INBOX_PORT` 覆盖，App 在设置卡片 4 里配同一端口。
+- **端口**：默认 `3082`；插件可用 `PET_INBOX_PORT` 覆盖，App 在设置卡片 4 里配同一端口。
 - **只绑回环**：手机之外（含同一 Wi-Fi 的其他设备）连不上，这是设计，不是缺陷。
 - **不需要 API Key 也能用**：只要 DSH 在跑，走的就是工作台自己的额度。
 
@@ -30,25 +30,25 @@
 ### 2.1 插件侧
 
 插件不开源，随 App 内置（`assets/pet-inbox/`）。在鲸鱼娘设置页点「安装 / 更新插件到工作台」，
-App 解包插件文件并生成安装命令，你在 DSH 里贴一下执行即可；启用后监听 `127.0.0.1:3081`。
+App 解包插件文件并生成安装命令，你在 DSH 里贴一下执行即可；启用后监听 `127.0.0.1:3082`。
 
 环境变量（可选）：
-- `PET_INBOX_PORT=3081`：覆盖监听端口；
+- `PET_INBOX_PORT=3082`：覆盖监听端口；
 - `DSH_WEB_PORT=3080`：插件反查工作台状态（余额/工作状态）用。
 
-插件启动日志里会出现 `桌宠收件箱已监听 127.0.0.1:3081`。
+插件启动日志里会出现 `桌宠收件箱已监听 127.0.0.1:3082`。
 
 ### 2.2 App 侧
 
-设置页 **卡片 4（指令入口）**：主机 `127.0.0.1`、端口 `3081`。
+设置页 **卡片 4（指令入口）**：主机 `127.0.0.1`、端口 `3082`。
 第一次打开 App 会自动 `POST /bind` 换令牌，之后每个请求都带 `x-pet-token`。
 
 ### 2.3 验证
 
 ```bash
-curl -s http://127.0.0.1:3081/ping
+curl -s http://127.0.0.1:3082/ping
 # {"ok":true,"bound":true,...}
-curl -s -X POST http://127.0.0.1:3081/send \
+curl -s -X POST http://127.0.0.1:3082/send \
   -H "x-pet-token: $(node -e 'console.log(require("/root/.dsh/pet-inbox/bind.json").token)')" \
   -H "content-type: application/json" \
   -d '{"channel":"chat","text":"测试：你好"}'
@@ -86,9 +86,9 @@ curl -s -X POST http://127.0.0.1:3081/send \
 ```java
 private String inboxBase() {
   String host = pref("inbox_host", "127.0.0.1");
-  String port = pref("inbox_port", "3081");
+  String port = pref("inbox_port", "3082");
   if (host.isEmpty()) host = "127.0.0.1";
-  if (port.isEmpty()) port = "3081";
+  if (port.isEmpty()) port = "3082";
   return "http://" + host + ":" + port;
 }
 
@@ -213,7 +213,7 @@ private String postChatJson(String base, String key, String req) {
 
 | 症状 | 原因 | 处理 |
 | --- | --- | --- |
-| `POST /send` 返回 **HTTP 405** | 3081 被别的服务占了（例如 DSH 宿主自己起在 3081） | 宿主回 3080，或两端一起改到 3082 |
+| `POST /send` 返回 **HTTP 405** | 3082 被别的服务占了 | 宿主回 3080，或两端一起改到其它空闲端口 |
 | 插件日志 `EADDRINUSE` | 同上，端口冲突 | 同上 |
 | `{ok:false, reason:"token-mismatch"}` | App 里存的令牌与 `bind.json` 不一致 | 删除 App 数据重新 `/bind`，或手动清 `bind.json` |
 | 连不上但手机明明能上网 | 插件只绑 `127.0.0.1` | 设计如此；跨设备请自己加隧道 |
